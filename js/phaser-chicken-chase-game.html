@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chicken Chase Game</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.55.2/phaser.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; }
+        #gameContainer { width: 100vw; height: 100vh; }
+    </style>
+</head>
+<body>
+    <div id="gameContainer"></div>
+    <script>
+        const config = {
+            type: Phaser.AUTO,
+            width: window.innerWidth,
+            height: window.innerHeight,
+            parent: 'gameContainer',
+            physics: {
+                default: 'arcade',
+                arcade: { gravity: { y: 300 } }
+            },
+            scene: {
+                preload: preload,
+                create: create,
+                update: update
+            }
+        };
+
+        const game = new Phaser.Game(config);
+        let gameState = {
+            distance: 0,
+            hearts: 5,
+            powerUps: [],
+            chickenPoweredUp: false,
+            shieldActive: false
+        };
+
+        function preload() {
+            this.load.image('background', 'assets/background.png');
+            this.load.image('ground', 'assets/ground.png');
+            this.load.image('chicken', 'assets/chicken.png');
+            this.load.image('chicken_powered', 'assets/chicken_powered.png');
+            this.load.image('enemy', 'assets/enemy.png');
+            this.load.image('magic-potion', 'assets/magic-potion.png');
+            this.load.image('health-potion', 'assets/health-potion.png');
+            this.load.image('shield', 'assets/shield.png');
+            this.load.image('projectile', 'assets/projectile.png');
+            this.load.image('bird_flying', 'assets/bird_flying.png');
+            this.load.image('heart', 'assets/heart01.png');
+            this.load.audio('background_music', 'assets/background_music.mp3');
+            this.load.audio('jump_sound', 'assets/jump_sound.mp3');
+            this.load.audio('hit_sound', 'assets/hit_sound.mp3');
+            this.load.audio('powerup_sound', 'assets/powerup_sound.mp3');
+            this.load.audio('projectile_sound', 'assets/projectile_sound.mp3');
+        }
+
+        function create() {
+            this.add.tileSprite(0, 0, game.config.width, game.config.height, 'background').setOrigin(0);
+            this.ground = this.add.tileSprite(0, game.config.height - 100, game.config.width, 100, 'ground').setOrigin(0);
+            this.physics.add.existing(this.ground, true);
+
+            this.chicken = this.physics.add.sprite(game.config.width * 0.2, game.config.height - 150, 'chicken');
+            this.chicken.setCollideWorldBounds(true);
+
+            this.enemy = this.physics.add.sprite(game.config.width * 0.1, game.config.height - 150, 'enemy');
+            this.enemy.setCollideWorldBounds(true);
+
+            this.physics.add.collider(this.chicken, this.ground);
+            this.physics.add.collider(this.enemy, this.ground);
+
+            this.cursors = this.input.keyboard.createCursorKeys();
+
+            this.magicPotion = this.physics.add.sprite(game.config.width, game.config.height - 150, 'magic-potion');
+            this.healthPotion = this.physics.add.sprite(game.config.width, game.config.height - 150, 'health-potion');
+            this.shield = this.physics.add.sprite(game.config.width, game.config.height - 150, 'shield');
+
+            this.physics.add.overlap(this.chicken, [this.magicPotion, this.healthPotion, this.shield], collectPowerUp, null, this);
+
+            this.projectiles = this.physics.add.group();
+            this.physics.add.overlap(this.chicken, this.projectiles, hitChicken, null, this);
+
+            this.distanceText = this.add.text(10, 10, 'Distance: 0m', { fontSize: '24px', fill: '#fff' });
+            this.hearts = this.add.group();
+            updateHearts(this);
+
+            this.backgroundMusic = this.sound.add('background_music', { loop: true });
+            this.backgroundMusic.play();
+
+            this.time.addEvent({ delay: 1000, callback: incrementDistance, callbackScope: this, loop: true });
+            this.time.addEvent({ delay: 2000, callback: fireProjectile, callbackScope: this, loop: true });
+        }
+
+        function update() {
+            this.ground.tilePositionX += 2;
+
+            if (this.cursors.up.isDown && this.chicken.body.touching.down) {
+                this.chicken.setVelocityY(-300);
+                this.sound.play('jump_sound');
+            }
+
+            const targetX = game.config.width * 0.2 - this.chicken.width / 2;
+            const distance = targetX - this.chicken.x;
+            this.chicken.x += distance * 0.1;
+
+            const enemyTargetX = game.config.width * 0.1 - this.enemy.width / 2;
+            const enemyDistance = enemyTargetX - this.enemy.x;
+            this.enemy.x += enemyDistance * 0.1;
+
+            updatePowerUps(this);
+        }
+
+        function collectPowerUp(chicken, powerUp) {
+            powerUp.disableBody(true, true);
+            if (powerUp.texture.key === 'magic-potion') {
+                gameState.chickenPoweredUp = true;
+                chicken.setTexture('chicken_powered');
+                gameState.powerUps.push({ type: 'magic-potion', duration: 10000, startTime: Date.now() });
+            } else if (powerUp.texture.key === 'health-potion') {
+                gameState.hearts = Math.min(gameState.hearts + 1, 5);
+                updateHearts(this);
+            } else if (powerUp.texture.key === 'shield') {
+                gameState.shieldActive = true;
+                gameState.powerUps.push({ type: 'shield', duration: 5000, startTime: Date.now() });
+            }
+            this.sound.play('powerup_sound');
+        }
+
+        function hitChicken(chicken, projectile) {
+            projectile.destroy();
+            if (!gameState.shieldActive) {
+                gameState.hearts--;
+                updateHearts(this);
+                this.sound.play('hit_sound');
+                if (gameState.hearts <= 0) {
+                    gameOver(this);
+                }
+            } else {
+                gameState.shieldActive = false;
+                gameState.powerUps = gameState.powerUps.filter(powerUp => powerUp.type !== 'shield');
+            }
+        }
+
+        function fireProjectile() {
+            const projectile = this.projectiles.create(this.enemy.x, this.enemy.y, 'projectile');
+            projectile.setVelocityX(200);
+            this.sound.play('projectile_sound');
+        }
+
+        function incrementDistance() {
+            gameState.distance += 5;
+            this.distanceText.setText(`Distance: ${gameState.distance}m`);
+        }
+
+        function updateHearts(scene) {
+            scene.hearts.clear(true, true);
+            for (let i = 0; i < gameState.hearts; i++) {
+                scene.hearts.create(game.config.width - 40 - i * 40, 40, 'heart');
+            }
+        }
+
+        function updatePowerUps(scene) {
+            const currentTime = Date.now();
+            gameState.powerUps = gameState.powerUps.filter(powerUp => {
+                if (currentTime - powerUp.startTime >= powerUp.duration) {
+                    if (powerUp.type === 'magic-potion') {
+                        gameState.chickenPoweredUp = false;
+                        scene.chicken.setTexture('chicken');
+                    } else if (powerUp.type === 'shield') {
+                        gameState.shieldActive = false;
+                    }
+                    return false;
+                }
+                return true;
+            });
+        }
+
+        function gameOver(scene) {
+            scene.physics.pause();
+            scene.add.text(game.config.width / 2, game.config.height / 2, 'Game Over', { fontSize: '48px', fill: '#fff' }).setOrigin(0.5);
+            scene.add.text(game.config.width / 2, game.config.height / 2 + 60, 'Click to restart', { fontSize: '24px', fill: '#fff' }).setOrigin(0.5);
+            scene.input.on('pointerdown', () => scene.scene.restart());
+        }
+    </script>
+</body>
+</html>
