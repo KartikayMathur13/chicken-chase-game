@@ -1,19 +1,22 @@
-// js/main.js
 import { Game } from './game.js';
-import { AssetLoader } from './assetLoader.js';
-import { UIManager } from './uiManager.js';
+   import { AssetLoader } from './assetLoader.js';
+   import { UIManager } from './uiManager.js';
+   import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants.js';
 
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+   const canvas = document.getElementById('gameCanvas');
+   const ctx = canvas.getContext('2d');
 
-const assetLoader = new AssetLoader();
-const uiManager = new UIManager();
-const game = new Game(canvas, ctx, assetLoader, uiManager);
+   canvas.width = CANVAS_WIDTH;
+   canvas.height = CANVAS_HEIGHT;
 
-async function init() {
-    await assetLoader.loadAssets();
-    uiManager.setupUI(game);
-    game.start();
-}
+   const assetLoader = new AssetLoader();
+   const uiManager = new UIManager();
+   const game = new Game(ctx, assetLoader, uiManager);
 
-init();
+   async function init() {
+       await assetLoader.loadAssets();
+       uiManager.init();
+       game.start();
+   }
+
+   init();
